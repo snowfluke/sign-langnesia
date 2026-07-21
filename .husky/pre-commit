@@ -1,0 +1,6 @@
+# Run staged-file checks only. Formatting is scoped to the staged files via
+# lint-staged. Bypassable with `git commit --no-verify`.
+
+set -e
+
+bunx lint-staged

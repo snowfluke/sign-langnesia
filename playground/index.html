@@ -1,0 +1,283 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="Live webcam demo of sign-langnesia: BISINDO (Indonesian Sign Language) alphabet recognition entirely in your browser with onnxruntime-web — no server, no upload."
+    />
+    <title>sign-langnesia — BISINDO alphabet, live in the browser</title>
+    <style>
+      *,
+      *::before,
+      *::after {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+
+      :root {
+        --bg: #10141a;
+        --panel: #1a212b;
+        --border: #2c3947;
+        --text: #e8edf4;
+        --muted: #8fa0b3;
+        --accent: #4fc3f7;
+        --ok: #66bb6a;
+        --warn: #ffa726;
+      }
+
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        background: var(--bg);
+        color: var(--text);
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        padding: 24px 16px;
+      }
+
+      header {
+        text-align: center;
+        margin-bottom: 20px;
+      }
+
+      header h1 {
+        font-size: 1.4rem;
+        letter-spacing: 0.02em;
+      }
+
+      header p {
+        color: var(--muted);
+        font-size: 0.85rem;
+        margin-top: 4px;
+      }
+
+      main {
+        display: flex;
+        gap: 20px;
+        flex-wrap: wrap;
+        justify-content: center;
+        width: 100%;
+        max-width: 900px;
+      }
+
+      .video-panel {
+        position: relative;
+        width: min(440px, 90vw);
+        aspect-ratio: 1;
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        overflow: hidden;
+      }
+
+      /* object-fit cover on a square panel == the center-crop the model sees */
+      video {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        transform: scaleX(-1); /* mirror for natural signing */
+      }
+
+      .result-panel {
+        width: min(320px, 90vw);
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 20px;
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+      }
+
+      #letter {
+        font-size: 6rem;
+        font-weight: 700;
+        text-align: center;
+        line-height: 1.1;
+        color: var(--accent);
+        min-height: 7rem;
+      }
+
+      .bar {
+        height: 8px;
+        background: var(--border);
+        border-radius: 4px;
+        overflow: hidden;
+      }
+
+      .bar > div {
+        height: 100%;
+        width: 0%;
+        background: var(--accent);
+        border-radius: 4px;
+        transition: width 0.15s ease;
+      }
+
+      #topk {
+        list-style: none;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        font-size: 0.9rem;
+      }
+
+      #topk li {
+        display: grid;
+        grid-template-columns: 1.4em 1fr 3.2em;
+        align-items: center;
+        gap: 8px;
+        color: var(--muted);
+      }
+
+      #topk li strong {
+        color: var(--text);
+      }
+
+      #stats,
+      #status {
+        font-size: 0.8rem;
+        color: var(--muted);
+        text-align: center;
+      }
+
+      button {
+        font: inherit;
+        padding: 10px 16px;
+        border-radius: 6px;
+        border: 1px solid var(--border);
+        background: var(--accent);
+        color: #06222f;
+        font-weight: 600;
+        cursor: pointer;
+      }
+
+      button:disabled {
+        opacity: 0.5;
+        cursor: wait;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>sign-langnesia</h1>
+      <p>BISINDO alphabet (A–Z) · EfficientNet-B3 · runs fully in your browser</p>
+    </header>
+
+    <main>
+      <section class="video-panel">
+        <video id="video" autoplay playsinline muted></video>
+      </section>
+
+      <section class="result-panel">
+        <div id="letter">–</div>
+        <div class="bar"><div id="confidence"></div></div>
+        <ol id="topk"></ol>
+        <div id="stats"></div>
+        <div id="status">loading model…</div>
+        <button id="toggle" disabled>Start camera</button>
+      </section>
+    </main>
+
+    <script type="importmap">
+      {
+        "imports": {
+          "onnxruntime-web": "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.26.0/dist/ort.all.bundle.min.mjs",
+          "ppu-ocv/canvas-web": "https://cdn.jsdelivr.net/npm/ppu-ocv@4.0.0/index.canvas-web.js"
+        }
+      }
+    </script>
+    <script type="module">
+      import { SignLangnesiaService, isWebGpuAvailable } from "./lib/web/index.js";
+
+      const $ = (id) => document.getElementById(id);
+      const video = $("video");
+      const letterEl = $("letter");
+      const confidenceEl = $("confidence");
+      const topkEl = $("topk");
+      const statsEl = $("stats");
+      const statusEl = $("status");
+      const toggleBtn = $("toggle");
+
+      const service = new SignLangnesiaService({
+        model: { classifier: "/models/efficientnet_bisindo.onnx" },
+        debugging: { verbose: true },
+      });
+
+      let provider = "wasm";
+      try {
+        provider = (await isWebGpuAvailable()) ? "webgpu" : "wasm";
+        await service.initialize();
+        statusEl.textContent = `model ready · ${provider}`;
+        toggleBtn.disabled = false;
+      } catch (err) {
+        statusEl.textContent = `failed to load model: ${err.message}`;
+        throw err;
+      }
+
+      let stream = null;
+      let running = false;
+
+      async function loop() {
+        while (running) {
+          if (video.readyState >= 2) {
+            const t0 = performance.now();
+            try {
+              const result = await service.classify(video, { topK: 3 });
+              const ms = performance.now() - t0;
+              render(result, ms);
+            } catch (err) {
+              statusEl.textContent = `inference error: ${err.message}`;
+            }
+          }
+          // ~10 fps cap; inference itself already throttles the loop
+          await new Promise((r) => setTimeout(r, 100));
+        }
+      }
+
+      function render(result, ms) {
+        const pct = Math.round(result.confidence * 100);
+        letterEl.textContent = result.label;
+        letterEl.style.color = result.confidence > 0.5 ? "var(--ok)" : "var(--warn)";
+        confidenceEl.style.width = `${pct}%`;
+        topkEl.innerHTML = result.scores
+          .map(
+            (s) =>
+              `<li><strong>${s.label}</strong><span class="bar"><div style="width:${Math.round(
+                s.confidence * 100
+              )}%;height:100%;background:var(--muted)"></div></span>${(s.confidence * 100).toFixed(
+                1
+              )}%</li>`
+          )
+          .join("");
+        statsEl.textContent = `${ms.toFixed(0)} ms / frame · ${provider}`;
+      }
+
+      toggleBtn.addEventListener("click", async () => {
+        if (running) {
+          running = false;
+          stream?.getTracks().forEach((t) => t.stop());
+          video.srcObject = null;
+          toggleBtn.textContent = "Start camera";
+          statusEl.textContent = `model ready · ${provider}`;
+          return;
+        }
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: { width: 640, height: 480, facingMode: "user" },
+          });
+          video.srcObject = stream;
+          running = true;
+          toggleBtn.textContent = "Stop camera";
+          statusEl.textContent = "classifying…";
+          loop();
+        } catch (err) {
+          statusEl.textContent = `camera error: ${err.message}`;
+        }
+      });
+    </script>
+  </body>
+</html>

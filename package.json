@@ -1,0 +1,95 @@
+{
+  "name": "sign-langnesia",
+  "version": "0.1.0",
+  "description": "BISINDO (Bahasa Isyarat Indonesia) alphabet classifier SDK in TypeScript. EfficientNet-B3 ONNX image classification that runs in Node.js, Bun, and browsers.",
+  "keywords": [
+    "bisindo",
+    "sign-language",
+    "indonesian-sign-language",
+    "image-classification",
+    "efficientnet",
+    "onnx",
+    "onnxruntime",
+    "computer-vision",
+    "browser",
+    "webcam",
+    "bun-compatible",
+    "typescript"
+  ],
+  "author": "snowfluke",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/snowfluke/sign-langnesia.git"
+  },
+  "homepage": "https://github.com/snowfluke/sign-langnesia#readme",
+  "type": "module",
+  "main": "./lib/index.js",
+  "types": "./lib/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./web": {
+      "types": "./lib/web/index.d.ts",
+      "default": "./lib/web/index.js"
+    },
+    "./mobile": {
+      "types": "./lib/mobile/index.d.ts",
+      "default": "./lib/mobile/index.js"
+    }
+  },
+  "files": [
+    "lib"
+  ],
+  "scripts": {
+    "build": "bun scripts/build.ts",
+    "build:test": "bun scripts/build.ts && bun test",
+    "type-check": "tsc --noEmit",
+    "test": "bun test",
+    "test:coverage": "bun test --coverage",
+    "lint": "oxlint",
+    "lint:fix": "oxlint --fix",
+    "fmt": "oxfmt --check",
+    "fmt:fix": "oxfmt .",
+    "demo": "bun run playground/serve.ts",
+    "prepare": "husky"
+  },
+  "dependencies": {
+    "ppu-ocv": "^4.0.0"
+  },
+  "devDependencies": {
+    "@napi-rs/canvas": "^1.0.2",
+    "@types/bun": "^1.3.14",
+    "husky": "^9.1.7",
+    "lint-staged": "^17.0.8",
+    "onnxruntime-common": "^1.27.0",
+    "onnxruntime-node": "^1.27.0",
+    "onnxruntime-react-native": "^1.24.3",
+    "onnxruntime-web": "^1.27.0",
+    "oxfmt": "^0.58.0",
+    "oxlint": "^1.73.0",
+    "typescript": "^7.0.2"
+  },
+  "peerDependencies": {
+    "@shopify/react-native-skia": ">=1.0.0",
+    "onnxruntime-node": ">=1.23.0",
+    "onnxruntime-react-native": ">=1.23.0",
+    "onnxruntime-web": ">=1.23.0"
+  },
+  "peerDependenciesMeta": {
+    "@shopify/react-native-skia": {
+      "optional": true
+    },
+    "onnxruntime-node": {
+      "optional": true
+    },
+    "onnxruntime-react-native": {
+      "optional": true
+    },
+    "onnxruntime-web": {
+      "optional": true
+    }
+  }
+}
