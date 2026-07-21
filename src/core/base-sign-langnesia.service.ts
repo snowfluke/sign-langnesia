@@ -94,7 +94,7 @@ export class BaseSignLangnesiaService<TSource> {
       this.options.session,
       (msg) => this.log(msg)
     );
-    this.log(`session ready — ${this.labels.length} classes @ ${INPUT_SIZE}×${INPUT_SIZE}`);
+    this.log(`session ready: ${this.labels.length} classes @ ${INPUT_SIZE}x${INPUT_SIZE}`);
   }
 
   protected log(msg: string): void {

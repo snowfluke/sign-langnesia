@@ -1,0 +1,4 @@
+# Husky sets core.hooksPath to .husky, which disables git-lfs's own pre-push
+# hook. Without this passthrough, pushes upload the LFS pointer but never the
+# object, and media.githubusercontent.com returns 404 for the model.
+git lfs pre-push "$@"

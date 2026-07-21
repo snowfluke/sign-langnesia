@@ -5,9 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta
       name="description"
-      content="Live webcam demo of sign-langnesia: BISINDO (Indonesian Sign Language) alphabet recognition entirely in your browser with onnxruntime-web — no server, no upload."
+      content="Live webcam demo of sign-langnesia: BISINDO (Indonesian Sign Language) alphabet recognition in your browser with onnxruntime-web. No server. No upload."
     />
-    <title>sign-langnesia — BISINDO alphabet, live in the browser</title>
+    <title>sign-langnesia: BISINDO alphabet, live in the browser</title>
     <style>
       *,
       *::before,
@@ -164,7 +164,7 @@
   <body>
     <header>
       <h1>sign-langnesia</h1>
-      <p>BISINDO alphabet (A–Z) · EfficientNet-B3 · runs fully in your browser</p>
+      <p>BISINDO alphabet (A to Z) · EfficientNet-B3 · runs fully in your browser</p>
     </header>
 
     <main>
@@ -173,7 +173,7 @@
       </section>
 
       <section class="result-panel">
-        <div id="letter">–</div>
+        <div id="letter">·</div>
         <div class="bar"><div id="confidence"></div></div>
         <ol id="topk"></ol>
         <div id="stats"></div>
@@ -202,8 +202,11 @@
       const statusEl = $("status");
       const toggleBtn = $("toggle");
 
+      // On localhost, serve.ts serves the model from models/. On GitHub Pages
+      // there is no LFS content, so the default remote model URL applies.
+      const isLocal = ["localhost", "127.0.0.1"].includes(location.hostname);
       const service = new SignLangnesiaService({
-        model: { classifier: "/models/efficientnet_bisindo.onnx" },
+        model: isLocal ? { classifier: "/models/efficientnet_bisindo.onnx" } : {},
         debugging: { verbose: true },
       });
 
@@ -221,14 +224,31 @@
       let stream = null;
       let running = false;
 
+      // Exponential moving average over the full softmax so the display
+      // doesn't flap on frame noise; only show a letter once it's confident.
+      const EMA_ALPHA = 0.3; // ~0.3 s time constant at 10 fps
+      const GATE = 0.5;
+      const smooth = new Map(); // label -> smoothed probability
+
+      function smoothScores(scores) {
+        for (const [label, value] of smooth) smooth.set(label, value * (1 - EMA_ALPHA));
+        for (const s of scores) {
+          smooth.set(s.label, (smooth.get(s.label) ?? 0) + EMA_ALPHA * s.confidence);
+        }
+        return [...smooth.entries()]
+          .map(([label, confidence]) => ({ label, confidence }))
+          .sort((a, b) => b.confidence - a.confidence);
+      }
+
       async function loop() {
         while (running) {
           if (video.readyState >= 2) {
             const t0 = performance.now();
             try {
-              const result = await service.classify(video, { topK: 3 });
+              // topK: 26 → full distribution, needed for a correct EMA
+              const result = await service.classify(video, { topK: 26 });
               const ms = performance.now() - t0;
-              render(result, ms);
+              render(smoothScores(result.scores), result, ms);
             } catch (err) {
               statusEl.textContent = `inference error: ${err.message}`;
             }
@@ -238,12 +258,16 @@
         }
       }
 
-      function render(result, ms) {
-        const pct = Math.round(result.confidence * 100);
-        letterEl.textContent = result.label;
-        letterEl.style.color = result.confidence > 0.5 ? "var(--ok)" : "var(--warn)";
+      function render(smoothed, raw, ms) {
+        const top = smoothed[0];
+        const pct = Math.round(top.confidence * 100);
+        const confident = top.confidence >= GATE;
+        letterEl.textContent = confident ? top.label : "·";
+        letterEl.style.color = confident ? "var(--ok)" : "var(--warn)";
+        letterEl.style.opacity = confident ? "1" : "0.4";
         confidenceEl.style.width = `${pct}%`;
-        topkEl.innerHTML = result.scores
+        topkEl.innerHTML = smoothed
+          .slice(0, 3)
           .map(
             (s) =>
               `<li><strong>${s.label}</strong><span class="bar"><div style="width:${Math.round(
@@ -253,12 +277,15 @@
               )}%</li>`
           )
           .join("");
-        statsEl.textContent = `${ms.toFixed(0)} ms / frame · ${provider}`;
+        statsEl.textContent =
+          `${ms.toFixed(0)} ms / frame · ${provider} · ` +
+          `raw: ${raw.label} ${(raw.confidence * 100).toFixed(0)}%`;
       }
 
       toggleBtn.addEventListener("click", async () => {
         if (running) {
           running = false;
+          smooth.clear();
           stream?.getTracks().forEach((t) => t.stop());
           video.srcObject = null;
           toggleBtn.textContent = "Start camera";

@@ -4,7 +4,7 @@ import type { InferenceSession } from "onnxruntime-common";
 export type ModelOptions = {
   /** Model source: filesystem path (Node/Bun), http(s) URL, or raw bytes. */
   classifier?: string | ArrayBuffer;
-  /** Class labels in model output order. Defaults to A–Z (BISINDO alphabet). */
+  /** Class labels in model output order. Defaults to A to Z (BISINDO alphabet). */
   labels?: readonly string[];
 };
 

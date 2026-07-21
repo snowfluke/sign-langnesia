@@ -22,6 +22,11 @@ jobs:
 
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          # The tests load the 46 MB ONNX model from models/. Without this
+          # flag, the checkout gets the LFS pointer file and ORT fails with
+          # "protobuf parsing failed".
+          lfs: true
 
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:

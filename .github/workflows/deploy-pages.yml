@@ -1,0 +1,54 @@
+name: Deploy Pages
+
+# Publishes the webcam demo to GitHub Pages. The site is assembled from
+# playground/index.html plus the freshly built lib/. The model is not part of
+# the site: GitHub Pages does not serve LFS content, so the demo downloads the
+# model from MODEL_BASE_URL (media.githubusercontent.com) at runtime.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.3.14
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build
+        run: bun run build
+
+      - name: Assemble site
+        run: |
+          mkdir -p dist
+          cp playground/index.html dist/
+          cp -r lib dist/lib
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: dist
+
+      - id: deployment
+        uses: actions/deploy-pages@v4

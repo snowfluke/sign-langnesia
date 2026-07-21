@@ -1,26 +1,32 @@
 # sign-langnesia
 
-BISINDO (Bahasa Isyarat Indonesia) alphabet classifier SDK in TypeScript.
-EfficientNet-B3 ONNX, 26 classes (A–Z), 98.8% validation accuracy. Runs
-anywhere JavaScript runs: Node.js, Bun, Deno, browsers (WebGPU with WASM
-fallback), and React Native. Same architecture as
-[ppu-paddle-ocr](https://github.com/PT-Perkasa-Pilar-Utama/ppu-paddle-ocr),
-with image handling by [ppu-ocv](https://github.com/PT-Perkasa-Pilar-Utama/ppu-ocv)'s
-canvas-native entries (no OpenCV — works in constrained environments like
-MV3 service workers).
+sign-langnesia is a TypeScript SDK that identifies the BISINDO (Bahasa Isyarat
+Indonesia) alphabet in images. The model is an EfficientNet-B3 in ONNX format
+with 26 classes (A to Z). The SDK operates in Node.js, Bun, Deno, browsers,
+and React Native. In browsers, it uses WebGPU when available and WASM when
+not.
 
-Model by [Syizuril/bisindo-sign-language](https://huggingface.co/Syizuril/bisindo-sign-language) —
-see [models/README.md](models/README.md) for attribution and conversion notes.
+The architecture is the same as
+[ppu-paddle-ocr](https://github.com/PT-Perkasa-Pilar-Utama/ppu-paddle-ocr).
+Image operations use the canvas-native entries of
+[ppu-ocv](https://github.com/PT-Perkasa-Pilar-Utama/ppu-ocv). These entries do
+not use OpenCV. Thus the SDK also operates in constrained environments, for
+example MV3 service workers.
+
+The model weights come from
+[Syizuril/bisindo-sign-language](https://huggingface.co/Syizuril/bisindo-sign-language).
+Refer to [models/README.md](models/README.md) for attribution, conversion
+notes, and measured accuracy.
 
 ## Entry points
 
-| Import path             | Runtime              | ONNX runtime                    | Canvas backend                      |
-| :---------------------- | :------------------- | :------------------------------ | :---------------------------------- |
-| `sign-langnesia`        | Node.js, Bun, Deno   | `onnxruntime-node`              | `@napi-rs/canvas` (ppu-ocv)         |
-| `sign-langnesia/web`    | Browsers, extensions | `onnxruntime-web` (WebGPU→WASM) | DOM / `OffscreenCanvas`             |
-| `sign-langnesia/mobile` | React Native         | `onnxruntime-react-native`      | Skia (`@shopify/react-native-skia`) |
+| Import path             | Runtime              | ONNX runtime                     | Canvas backend                      |
+| :---------------------- | :------------------- | :------------------------------- | :---------------------------------- |
+| `sign-langnesia`        | Node.js, Bun, Deno   | `onnxruntime-node`               | `@napi-rs/canvas` (ppu-ocv)         |
+| `sign-langnesia/web`    | Browsers, extensions | `onnxruntime-web` (WebGPU, WASM) | DOM / `OffscreenCanvas`             |
+| `sign-langnesia/mobile` | React Native         | `onnxruntime-react-native`       | Skia (`@shopify/react-native-skia`) |
 
-## Install
+## Installation
 
 ```sh
 bun add sign-langnesia onnxruntime-node @napi-rs/canvas           # Node/Bun/Deno
@@ -35,9 +41,7 @@ Node / Bun / Deno:
 ```ts
 import { SignLangnesiaService } from "sign-langnesia";
 
-const service = new SignLangnesiaService({
-  model: { classifier: "/abs/path/to/efficientnet_bisindo.onnx" },
-});
+const service = new SignLangnesiaService();
 await service.initialize();
 
 const buffer = await Bun.file("./sign.jpg").arrayBuffer();
@@ -52,34 +56,40 @@ Browser (live webcam):
 ```ts
 import { SignLangnesiaService } from "sign-langnesia/web";
 
-const service = new SignLangnesiaService({
-  model: { classifier: "/models/efficientnet_bisindo.onnx" },
-});
+const service = new SignLangnesiaService();
 await service.initialize();
 
-const result = await service.classify(videoElement); // any frame source
+const result = await service.classify(videoElement);
 console.log(result.label);
 ```
 
-`classify()` accepts a path/URL string, `ArrayBuffer`, or a canvas — plus
-`<video>`, `<img>`, `OffscreenCanvas`, and `ImageBitmap` on the web. Frames
-are center-cropped to a square and resized to 300×300 with ImageNet
-normalization; that preprocessing is built in.
+The `classify()` function accepts these sources:
+
+- A path or a URL, as a string
+- An `ArrayBuffer`
+- A canvas
+
+On the web, it also accepts `<video>`, `<img>`, `OffscreenCanvas`, and
+`ImageBitmap`.
+
+The SDK prepares each frame before classification. It crops the center square,
+sets the size to 300x300 pixels, and applies ImageNet normalization.
 
 ## Lifecycle
 
-`new` → `await initialize()` → `classify()`… → `await destroy()`. One service
-per process; keep it warm, destroy on shutdown. `classify()` lazy-initializes
-if you skip `initialize()`, but explicit init surfaces model-load failures at
-startup.
+Follow this sequence: `new`, `await initialize()`, `classify()`,
+`await destroy()`. Use one service for each process. Keep the service warm.
+Destroy the service at shutdown. If you do not call `initialize()`, the first
+`classify()` call does the initialization. An explicit `initialize()` shows
+model-load failures at startup.
 
 ## Result shape
 
 ```ts
 type ClassifyResult = {
-  label: string; // top-1 letter, "A"–"Z"
-  confidence: number; // softmax probability 0..1
-  scores: LabelScore[]; // top-k (default 3), descending
+  label: string; // top-1 letter, "A" to "Z"
+  confidence: number; // softmax probability, 0 to 1
+  scores: LabelScore[]; // top-k predictions (default 3), in descending order
 };
 ```
 
@@ -88,20 +98,23 @@ type ClassifyResult = {
 ```sh
 bun install
 bun run build
-bun run demo   # http://localhost:3456 — webcam, all client-side
+bun run demo
 ```
+
+Open http://localhost:3456. The demo uses your webcam. All computation occurs
+in the browser. The `deploy-pages` workflow publishes the same demo to GitHub
+Pages on each push to `main`.
 
 ## Model
 
 | File                               | What                                                           |
 | :--------------------------------- | :------------------------------------------------------------- |
 | `models/efficientnet_bisindo.onnx` | EfficientNet-B3, input `[1,3,300,300]`, output `[1,26]` logits |
-| `models/class_to_idx.json`         | Label order (A=0 … Z=25), baked into `BISINDO_LABELS`          |
+| `models/class_to_idx.json`         | Label order (A=0 to Z=25), included as `BISINDO_LABELS`        |
 
-Weights: [Syizuril/bisindo-sign-language](https://huggingface.co/Syizuril/bisindo-sign-language)
-(fine-tuned on 9,169 BISINDO images). By default every runtime fetches the
-model from this repo's LFS media URL (`MODEL_BASE_URL`) on `initialize()`;
-pass a local path or bytes via `model.classifier` to skip the 46 MB download.
+By default, each runtime downloads the model from this repository
+(`MODEL_BASE_URL`) at `initialize()`. To prevent the 46 MB download, set a
+local path or bytes in `model.classifier`.
 
 ## Development
 
@@ -113,5 +126,6 @@ bun run fmt
 bun test
 ```
 
-Husky + lint-staged gate commits (oxfmt, oxlint, tsc). Conventional commit
-subjects enforced (`feat: …`, `fix: …`, max 80 chars).
+Husky and lint-staged control each commit (oxfmt, oxlint, tsc). Commit
+subjects must follow the Conventional Commits format, for example `feat: ...`
+or `fix: ...`, with a maximum of 80 characters.

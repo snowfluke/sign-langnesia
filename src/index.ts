@@ -2,7 +2,7 @@
  * @module
  *
  * BISINDO (Bahasa Isyarat Indonesia) alphabet classifier for Node.js, Bun,
- * and Deno. EfficientNet-B3 ONNX, 26 classes (A–Z).
+ * and Deno. EfficientNet-B3 ONNX, 26 classes (A to Z).
  *
  * @example
  * ```ts
