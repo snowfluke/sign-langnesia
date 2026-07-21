@@ -102,8 +102,12 @@ bun run demo
 ```
 
 Open http://localhost:3456. The demo uses your webcam. All computation occurs
-in the browser. The `deploy-pages` workflow publishes the same demo to GitHub
-Pages on each push to `main`.
+in the browser.
+
+The root `index.html` is a standalone copy of the demo for GitHub Pages. It
+loads onnxruntime-web from the CDN and the model from this repository's LFS
+media URL. To publish it, set Settings > Pages > Deploy from a branch >
+`main` > `/ (root)`.
 
 ## Model
 

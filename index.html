@@ -1,0 +1,354 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="Live webcam demo of sign-langnesia: BISINDO (Indonesian Sign Language) alphabet recognition in your browser with onnxruntime-web. No server. No upload."
+    />
+    <title>sign-langnesia: BISINDO alphabet, live in the browser</title>
+    <style>
+      *,
+      *::before,
+      *::after {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+
+      :root {
+        --bg: #10141a;
+        --panel: #1a212b;
+        --border: #2c3947;
+        --text: #e8edf4;
+        --muted: #8fa0b3;
+        --accent: #4fc3f7;
+        --ok: #66bb6a;
+        --warn: #ffa726;
+      }
+
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        background: var(--bg);
+        color: var(--text);
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        padding: 24px 16px;
+      }
+
+      header {
+        text-align: center;
+        margin-bottom: 20px;
+      }
+
+      header h1 {
+        font-size: 1.4rem;
+        letter-spacing: 0.02em;
+      }
+
+      header p {
+        color: var(--muted);
+        font-size: 0.85rem;
+        margin-top: 4px;
+      }
+
+      header a {
+        color: var(--accent);
+      }
+
+      main {
+        display: flex;
+        gap: 20px;
+        flex-wrap: wrap;
+        justify-content: center;
+        width: 100%;
+        max-width: 900px;
+      }
+
+      .video-panel {
+        position: relative;
+        width: min(440px, 90vw);
+        aspect-ratio: 1;
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        overflow: hidden;
+      }
+
+      /* object-fit cover on a square panel == the center crop the model sees */
+      video {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        transform: scaleX(-1); /* mirror for natural signing */
+      }
+
+      .result-panel {
+        width: min(320px, 90vw);
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        padding: 20px;
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+      }
+
+      #letter {
+        font-size: 6rem;
+        font-weight: 700;
+        text-align: center;
+        line-height: 1.1;
+        color: var(--accent);
+        min-height: 7rem;
+      }
+
+      .bar {
+        height: 8px;
+        background: var(--border);
+        border-radius: 4px;
+        overflow: hidden;
+      }
+
+      .bar > div {
+        height: 100%;
+        width: 0%;
+        background: var(--accent);
+        border-radius: 4px;
+        transition: width 0.15s ease;
+      }
+
+      #topk {
+        list-style: none;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        font-size: 0.9rem;
+      }
+
+      #topk li {
+        display: grid;
+        grid-template-columns: 1.4em 1fr 3.2em;
+        align-items: center;
+        gap: 8px;
+        color: var(--muted);
+      }
+
+      #topk li strong {
+        color: var(--text);
+      }
+
+      #stats,
+      #status {
+        font-size: 0.8rem;
+        color: var(--muted);
+        text-align: center;
+      }
+
+      button {
+        font: inherit;
+        padding: 10px 16px;
+        border-radius: 6px;
+        border: 1px solid var(--border);
+        background: var(--accent);
+        color: #06222f;
+        font-weight: 600;
+        cursor: pointer;
+      }
+
+      button:disabled {
+        opacity: 0.5;
+        cursor: wait;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>sign-langnesia</h1>
+      <p>BISINDO alphabet (A to Z) · EfficientNet-B3 · runs fully in your browser</p>
+      <p><a href="https://github.com/snowfluke/sign-langnesia">GitHub</a></p>
+    </header>
+
+    <main>
+      <section class="video-panel">
+        <video id="video" autoplay playsinline muted></video>
+      </section>
+
+      <section class="result-panel">
+        <div id="letter">·</div>
+        <div class="bar"><div id="confidence"></div></div>
+        <ol id="topk"></ol>
+        <div id="stats"></div>
+        <div id="status">loading model…</div>
+        <button id="toggle" disabled>Start camera</button>
+      </section>
+    </main>
+
+    <!-- Standalone GitHub Pages demo. It does not use the built lib/ (not in
+         git). It loads onnxruntime-web from the CDN, the model from this
+         repository's LFS media URL, and does the same preprocessing inline:
+         center crop, 300x300, ImageNet normalization. For the SDK demo that
+         exercises lib/web, run `bun run demo` and open playground/. -->
+    <script type="module">
+      import * as ort from "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.26.0/dist/ort.all.bundle.min.mjs";
+
+      const MODEL_URL =
+        "https://media.githubusercontent.com/media/snowfluke/sign-langnesia/main/models/efficientnet_bisindo.onnx";
+      const LABELS = [..."ABCDEFGHIJKLMNOPQRSTUVWXYZ"];
+      const SIZE = 300;
+      const MEAN = [0.485, 0.456, 0.406];
+      const STD = [0.229, 0.224, 0.225];
+
+      const $ = (id) => document.getElementById(id);
+      const video = $("video");
+      const letterEl = $("letter");
+      const confidenceEl = $("confidence");
+      const topkEl = $("topk");
+      const statsEl = $("stats");
+      const statusEl = $("status");
+      const toggleBtn = $("toggle");
+
+      ort.env.wasm.wasmPaths = "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.26.0/dist/";
+
+      async function hasWebGpu() {
+        if (!navigator.gpu) return false;
+        try {
+          return (await navigator.gpu.requestAdapter()) !== null;
+        } catch {
+          return false;
+        }
+      }
+
+      let session = null;
+      let provider = "wasm";
+      try {
+        provider = (await hasWebGpu()) ? "webgpu" : "wasm";
+        const bytes = await (await fetch(MODEL_URL)).arrayBuffer();
+        session = await ort.InferenceSession.create(new Uint8Array(bytes), {
+          executionProviders: provider === "webgpu" ? ["webgpu", "wasm"] : ["wasm"],
+        });
+        statusEl.textContent = `model ready · ${provider}`;
+        toggleBtn.disabled = false;
+      } catch (err) {
+        statusEl.textContent = `failed to load model: ${err.message}`;
+        throw err;
+      }
+
+      const scratch = document.createElement("canvas");
+      scratch.width = SIZE;
+      scratch.height = SIZE;
+      const ctx = scratch.getContext("2d", { willReadFrequently: true });
+
+      function frameTensor() {
+        const w = video.videoWidth;
+        const h = video.videoHeight;
+        const side = Math.min(w, h);
+        ctx.drawImage(video, (w - side) / 2, (h - side) / 2, side, side, 0, 0, SIZE, SIZE);
+        const { data } = ctx.getImageData(0, 0, SIZE, SIZE);
+        const plane = SIZE * SIZE;
+        const chw = new Float32Array(3 * plane);
+        for (let i = 0; i < plane; i++) {
+          const px = i * 4;
+          chw[i] = (data[px] / 255 - MEAN[0]) / STD[0];
+          chw[plane + i] = (data[px + 1] / 255 - MEAN[1]) / STD[1];
+          chw[2 * plane + i] = (data[px + 2] / 255 - MEAN[2]) / STD[2];
+        }
+        return new ort.Tensor("float32", chw, [1, 3, SIZE, SIZE]);
+      }
+
+      function softmax(logits) {
+        let max = -Infinity;
+        for (const v of logits) if (v > max) max = v;
+        const out = new Float32Array(logits.length);
+        let sum = 0;
+        for (let i = 0; i < logits.length; i++) {
+          out[i] = Math.exp(logits[i] - max);
+          sum += out[i];
+        }
+        for (let i = 0; i < out.length; i++) out[i] /= sum;
+        return out;
+      }
+
+      // Exponential moving average over the softmax so the display does not
+      // flap on frame noise; only show a letter once it is confident.
+      const EMA_ALPHA = 0.3;
+      const GATE = 0.5;
+      let smooth = new Float32Array(26);
+
+      let stream = null;
+      let running = false;
+
+      async function loop() {
+        while (running) {
+          if (video.readyState >= 2) {
+            const t0 = performance.now();
+            try {
+              const input = frameTensor();
+              const out = await session.run({ [session.inputNames[0]]: input });
+              const probs = softmax(out[session.outputNames[0]].data);
+              for (let i = 0; i < 26; i++) {
+                smooth[i] = smooth[i] * (1 - EMA_ALPHA) + EMA_ALPHA * probs[i];
+              }
+              render(probs, performance.now() - t0);
+            } catch (err) {
+              statusEl.textContent = `inference error: ${err.message}`;
+            }
+          }
+          await new Promise((r) => setTimeout(r, 100)); // ~10 fps cap
+        }
+      }
+
+      function render(rawProbs, ms) {
+        const order = [...smooth.keys()].sort((a, b) => smooth[b] - smooth[a]);
+        const top = order[0];
+        const confident = smooth[top] >= GATE;
+        letterEl.textContent = confident ? LABELS[top] : "·";
+        letterEl.style.color = confident ? "var(--ok)" : "var(--warn)";
+        letterEl.style.opacity = confident ? "1" : "0.4";
+        confidenceEl.style.width = `${Math.round(smooth[top] * 100)}%`;
+        topkEl.innerHTML = order
+          .slice(0, 3)
+          .map(
+            (i) =>
+              `<li><strong>${LABELS[i]}</strong><span class="bar"><div style="width:${Math.round(
+                smooth[i] * 100
+              )}%;height:100%;background:var(--muted)"></div></span>${(smooth[i] * 100).toFixed(
+                1
+              )}%</li>`
+          )
+          .join("");
+        const rawTop = rawProbs.indexOf(Math.max(...rawProbs));
+        statsEl.textContent =
+          `${ms.toFixed(0)} ms / frame · ${provider} · ` +
+          `raw: ${LABELS[rawTop]} ${(rawProbs[rawTop] * 100).toFixed(0)}%`;
+      }
+
+      toggleBtn.addEventListener("click", async () => {
+        if (running) {
+          running = false;
+          smooth = new Float32Array(26);
+          stream?.getTracks().forEach((t) => t.stop());
+          video.srcObject = null;
+          toggleBtn.textContent = "Start camera";
+          statusEl.textContent = `model ready · ${provider}`;
+          return;
+        }
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({
+            video: { width: 640, height: 480, facingMode: "user" },
+          });
+          video.srcObject = stream;
+          running = true;
+          toggleBtn.textContent = "Stop camera";
+          statusEl.textContent = "classifying…";
+          loop();
+        } catch (err) {
+          statusEl.textContent = `camera error: ${err.message}`;
+        }
+      });
+    </script>
+  </body>
+</html>
